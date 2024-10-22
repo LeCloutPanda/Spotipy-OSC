@@ -92,38 +92,33 @@ def play_pause():
         client.send_message("/is_playing", True)        
         print("Resumed playback.")
 
-def get_current_track_image():
-    playback_info = sp.current_playback()
+def get_current_track_image(playback):
+    playback_info = playback
     if playback_info is not None:
         item = playback_info['item']
         if item and 'album' in item and 'images' in item['album']:
             image_url = item['album']['images'][0]['url'] 
             return image_url
-    return None
+    return ""
 
-def get_current_track_name():
-    playback_info = sp.current_playback()
+def get_current_track_name(playback):
+    playback_info = playback
     if playback_info and playback_info['item']:
         return playback_info['item']['name']
-    return None
+    return ""
 
-def track_change_event():
-    last_track = None
-    last_image = None
+def get_is_playing(playback):
+    playback_info = playback
+    if playback_info and playback_info['is_playing']:
+        return playback_info['is_playing']
+    return False
 
+def update_data():
     while True:
-        current_track = get_current_track_name()
-        current_image = get_current_track_image();
-
-        if current_track and current_track != last_track:
-            print(f"Track changed to: {current_track}")
-            client.send_message("/track_name", current_track)
-            last_track = current_track
-
-        if current_image and current_image != last_image:
-            print(f"Track image changed to: {current_image}")
-            client.send_message("/track_image", current_image)
-            last_image = current_image
+        playback = sp.current_user_playing_track()
+        client.send_message("/track_name", get_current_track_name(playback))
+        client.send_message("/track_image", get_current_track_image(playback))
+        client.send_message("/is_playing", get_is_playing(playback))
 
         time.sleep(1)
 
@@ -131,6 +126,10 @@ def print_message(address, *args):
     print(f"Received OSC message at {address} with arguments: {args}")
 
 def osc_command_handler(unused_addr, command):
+    if command is None:
+        print("Received a None command. Ignoring.")
+        return
+
     command = command.lower() 
 
     match command:
@@ -150,9 +149,9 @@ def setup_osc_dispatcher():
     disp.map("/spotify_control", osc_command_handler)
     disp.set_default_handler(print_message)
 
-    track_thread = threading.Thread(target=track_change_event)
-    track_thread.daemon = True
-    track_thread.start()
+    update_thread = threading.Thread(target=update_data)
+    update_thread.daemon = True
+    update_thread.start()
 
     return disp
 
@@ -169,8 +168,8 @@ if __name__ == "__main__":
         scope="user-library-read user-modify-playback-state user-read-playback-state"
     ))
 
-    disp = setup_osc_dispatcher()
     client = udp_client.SimpleUDPClient(config['ip_address'], config['send_port'])
+    disp = setup_osc_dispatcher()
     server = osc_server.ThreadingOSCUDPServer((config['ip_address'], config['receive_port']), disp)
     print(f"Running at {config['ip_address']}:{config['send_port']}/{config['receive_port']}")
     server.serve_forever()
